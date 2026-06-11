@@ -2,16 +2,36 @@
 
 ## 1. Goal
 
-Provide marketers with a single chat interface where they can query multiple customer persona agents and receive:
+Provide marketing, product, and sales teams with a single chat interface where they can query multiple synthetic customer persona agents and receive:
 
 - persona-by-persona reactions
 - agreement and disagreement analysis
 - prioritized campaign recommendations
 - evidence-backed rationale from enterprise data
 
+### Use Cases
+
+- **Campaign and content testing**: marketers test messaging, offers, and creative before launch
+- **Product development feedback**: simulate customer reactions to new features and pricing decisions
+- **Sales pitch rehearsal**: test and refine sales narratives against representative buyer personas
+- **Customer centricity**: support the organization's strategic focus on deeply understanding customer perspectives
+
+### Project Team
+
+- **Josh Miller** — project lead
+- **Tony Truelove** — persona template development and marketing strategy
+- **Armando** — technical implementation (Azure AI Foundry, Copilot Studio)
+- **Naveen Subramanyam** — Microsoft technical advisor
+- **Pete Fuenfhausen** — architecture and engineering
+- **Lori Dempsey** — stakeholder
+
+### Current Status (as of June 2026)
+
+Three B2B personas are live in Microsoft Teams: **data center consultant**, **engineer**, and **contractor**. Users can chat with each persona individually and test responses to marketing content and product scenarios.
+
 This architecture uses Microsoft AI technologies:
 
-- Microsoft Copilot Studio
+- Microsoft Copilot Studio (integrated with Microsoft Teams)
 - Azure AI Foundry
 - Azure AI Search
 - Azure AI Agent Service
@@ -21,7 +41,8 @@ This architecture uses Microsoft AI technologies:
 
 ```mermaid
 flowchart TB
-    U[Marketing User] --> CS[Copilot Studio Channel Experience]
+    U[Marketing / Product / Sales User] --> TEAMS[Microsoft Teams]
+    TEAMS --> CS[Copilot Studio Channel Experience]
     CS --> APIM[Azure API Management / Security Gateway]
     APIM --> ORCH[Orchestration Service\nAgent Framework + Workflow Layer]
 
@@ -31,7 +52,7 @@ flowchart TB
     AS --> FM[Azure AI Foundry Models\nGPT-family + Small Models]
     AF --> FM
 
-    AS --> SRCH[Azure AI Search\nRAG over campaign, CRM, product, research data]
+    AS --> SRCH[Azure AI Search\nRAG over persona templates, campaign, CRM, product, research data]
     AF --> SRCH
 
     ORCH --> MEM[(Conversation Memory + Persona Registry)]
@@ -41,20 +62,26 @@ flowchart TB
     ORCH --> SYN[Response Synthesizer\nConsensus, conflict, action plan]
     SYN --> CS
 
-    CS --> FB[Marketer Feedback Capture]
+    CS --> FB[User Feedback Capture]
     FB --> OBS
     FB --> MEM
+
+    TMPL[Word Persona Templates\n~35-page docs] --> PA[Power Automate\nIngestion Flow]
+    PA --> CS
+    PA --> SRCH
 ```
 
 ## 3. Technology Responsibility Map
 
 | Capability | Primary Microsoft Technology | Why it fits |
 |---|---|---|
-| Business-facing chat UX | Microsoft Copilot Studio | Low-code conversational interface for marketing teams, rapid iteration, connectors, and governance controls. |
+| Business-facing chat UX | Microsoft Copilot Studio (Teams channel) | Low-code conversational interface for marketing and product teams, rapid iteration, connectors, Teams integration, and governance controls. |
 | Managed agent hosting | Azure AI Agent Service | Standardized managed runtime for agents, tools, and lifecycle operations. |
 | Model lifecycle and model choice | Azure AI Foundry | Central model catalog, deployment, evaluation, and prompt/model experimentation. |
-| Grounding and retrieval | Azure AI Search | Hybrid/vector/semantic retrieval for campaign docs, product info, CRM snapshots, and research notes. |
-| Complex orchestration and custom persona logic | Microsoft Agent Framework | Pro-code control over routing, planning, multi-agent fan-out, and synthesis behavior. |
+| Grounding and retrieval | Azure AI Search | Hybrid/vector/semantic retrieval for persona templates, campaign docs, product info, CRM snapshots, and research notes. |
+| Complex orchestration and custom persona logic | Microsoft Agent Framework | Pro-code control over routing, planning, multi-agent fan-out (ensemble/panel pattern), and synthesis behavior. |
+| Flexible skills-based orchestration (future) | Model Context Protocol (MCP) | Composable, protocol-driven tool and skill invocation for dynamic persona composition across large persona catalogs. |
+| Template ingestion and agent grounding automation | Power Automate | Orchestrates the Word document → agent grounding pipeline, triggering on new or updated persona templates. |
 | Enterprise controls | Azure API Management + Entra ID + policy services | Access control, rate limiting, tenant separation, and policy enforcement. |
 | Quality and monitoring | Foundry eval + telemetry stack | Continuous quality checks, drift detection, and runtime metrics. |
 
@@ -84,9 +111,12 @@ flowchart TB
 ### 5.2 Orchestration Layer (Agent Framework)
 
 - intent routing
-- persona fan-out and parallel execution
+- persona fan-out and parallel execution (ensemble/panel pattern — one dedicated agent per persona)
+- panel discussion mode: multiple agents respond and react to each other's answers in sequence
 - timeout and fallback handling
 - synthesis and ranking logic
+
+> **Design decision**: The ensemble/panel pattern (dedicated agent per persona) is preferred over a polymorphic agent (single agent switching personas) for marketing research workloads. Dedicated agents avoid persona bleed and produce more consistent, comparable outputs. MCP-based skills composition is planned for Phase 3 to support flexible orchestration at scale across 65+ personas.
 
 ### 5.3 Agent Runtime (Azure AI Agent Service)
 
@@ -100,17 +130,31 @@ flowchart TB
 - prompt and model versioning
 - controlled rollout and regression testing
 
-### 5.5 Knowledge Layer (Azure AI Search)
+### 5.5 Persona Template Ingestion Workflow
+
+Persona templates originate as authored Word documents and follow this pipeline before becoming grounded agents:
+
+1. **Authoring**: A persona starts as a ~10-page brief that is expanded to a ~35-page Word document through deep-thinking prompts and researcher-style elaboration. Templates capture firmographic, demographic, and psychographic attributes.
+2. **Conversion (optional)**: Word documents can be converted to structured JSON via Azure AI Document Intelligence (formerly Cognitive Services) to enable machine-readable persona definitions and registry storage.
+3. **Grounding**: Agents in Copilot Studio are grounded using either the JSON output or directly from the Word document. Direct Word grounding (bypassing JSON conversion) is the recommended path for simplicity and reduced pipeline complexity.
+4. **Power Automate flow**: A Power Automate flow handles the handoff from document storage to Copilot Studio agent configuration, triggering on new or updated template files.
+5. **Publish**: Once grounded and validated in sandbox, personas are published to production via the approval workflow in the persona registry.
+
+> **Note**: Direct Word document grounding is the preferred approach. JSON conversion adds flexibility for registry storage and programmatic access but is not required for initial persona activation.
+
+### 5.6 Knowledge Layer (Azure AI Search)
 
 - ingestion pipelines from:
+  - persona templates (Word documents and/or JSON)
   - campaign briefs and creative history
   - customer interview summaries
   - market and competitor research
   - product/pricing documentation
+- planned future sources: Salesforce (CRM and voice-of-customer data), Eaton.com (product and customer signal data)
 - hybrid search with semantic reranking
 - citation-ready chunks for transparent answers
 
-### 5.6 Governance Layer
+### 5.7 Governance Layer
 
 - identity and RBAC via Entra ID
 - PII filtering and redaction
@@ -123,37 +167,50 @@ Enable a self-service Persona Builder so marketing teams can create and tune per
 
 ### 6.1 Persona Builder Capabilities
 
-- create persona from template (for example: Price-Sensitive Parent, Premium Early Adopter)
+- create persona from template (for example: Data Center Consultant, Field Engineer, Contractor)
 - edit tone, goals, objections, purchase triggers, and decision criteria
 - define data visibility boundaries (which indexes and sources a persona can use)
 - test persona in a sandbox chat before publishing
 - publish persona versions with approval workflow
 
-### 6.2 Persona Definition Contract
+### 6.2 Persona Template and Definition Contract
+
+#### Template Authoring
+
+Persona templates start as ~10-page briefs and are expanded to ~35-page Word documents through deep-thinking and researcher-style prompting. Each template captures:
+
+- **Firmographic**: industry, company size, role, buying authority
+- **Demographic**: seniority, geography, background
+- **Psychographic**: goals, concerns, decision signals, motivations, communication style
+
+These Word documents serve as the primary grounding artifact for persona agents.
+
+#### Persona Definition Contract
 
 Store persona definitions in a registry (database + versioned config).
 
-Example schema:
+Example schema (B2B — Data Center Consultant):
 
 ```yaml
-personaId: "budget_family_shopper"
-name: "Budget Family Shopper"
-segment: "Households with children, value-focused"
+personaId: "data_center_consultant"
+name: "Data Center Consultant"
+segment: "B2B — Infrastructure and facilities decision influencers"
 instructionProfile:
   goals:
-    - "maximize value for money"
-    - "avoid hidden costs"
+    - "recommend reliable, energy-efficient infrastructure solutions"
+    - "minimize total cost of ownership for clients"
   concerns:
-    - "subscription lock-in"
-    - "delivery fees"
+    - "vendor lock-in and long support cycles"
+    - "integration complexity with existing systems"
   decisionSignals:
-    - "clear discount"
-    - "trusted reviews"
+    - "proven reference customers in similar environments"
+    - "clear ROI and payback period"
 voice:
-  style: "practical, skeptical, detail-oriented"
+  style: "technical, evidence-driven, skeptical of marketing claims"
 allowedDataSources:
+  - "product-specs-index"
   - "campaign-history-index"
-  - "pricing-and-promotions-index"
+  - "competitor-research-index"
 responseSchema: "personaReactionV1"
 safetyPolicy: "marketing-persona-standard"
 version: "1.0.0"
@@ -203,37 +260,56 @@ Recommended synthesis output fields:
 - implement circuit breakers for slow or failing persona agents
 - provide graceful degradation (return available persona results with completeness indicator)
 
-## 9. Deployment Topology (Reference)
+## 9. Known Platform Constraints and Mitigations
 
-- Front door: Copilot Studio + API gateway
+These constraints were identified during initial implementation and working sessions.
+
+| Constraint | Detail | Recommended Mitigation |
+|---|---|---|
+| Copilot Studio 2,000-character input limit | Passing large documents or full web page content as input causes agent crashes | Chunk documents before passing to agents; add explicit instructions to limit output length; use Azure AI Search retrieval (RAG) rather than full-document injection |
+| Teams group chat agent tagging | In Teams group chats, users must tag each agent individually per turn; agents do not proactively reply without being addressed | Expected platform behavior; improvements to agent identity and governance are on the Microsoft roadmap |
+| Large persona template grounding | 35-page Word documents exceed comfortable context window sizes for some operations | Prefer chunked AI Search indexing over raw document injection; use direct Word grounding only for per-agent system prompt setup |
+| External platform data access restrictions | Salesforce and Eaton.com may impose restrictions on AI system access to their data feeds | Validate data access agreements early; consider scheduled extract-and-index pipelines as an alternative to live connectors |
+| Polymorphic agent context switching | A single agent assuming multiple personas in one session risks persona bleed and inconsistent voice | Prefer the ensemble/panel pattern (one dedicated agent per persona) over polymorphic agents for marketing research workloads |
+
+## 10. Deployment Topology (Reference)
+
+- Front door: Copilot Studio (Teams channel) + API gateway
+- Template ingestion: Power Automate flow (Word/JSON → Copilot Studio agent grounding)
 - Core app services: orchestration service and synthesis service
 - Agent runtime: Azure AI Agent Service
 - Model and eval plane: Azure AI Foundry
 - Knowledge plane: Azure AI Search indexes + ingestion jobs
 - State plane: persona registry, session memory, telemetry store
 
-## 10. Implementation Roadmap
+## 11. Implementation Roadmap
 
-### Phase 1 (4-6 weeks)
+### Phase 1 — Foundation (Completed)
 
-- 3 to 5 core personas
-- basic orchestration and synthesis
-- Azure AI Search grounding for key datasets
-- Copilot Studio experience for marketers
+- Three B2B personas live in Teams: data center consultant, engineer, contractor
+- Copilot Studio channel experience integrated with Microsoft Teams
+- Azure AI Foundry grounding and initial persona template workflow
+- Word document template authoring and agent grounding via Power Automate
 
-### Phase 2 (6-10 weeks)
+### Phase 2 (6–10 weeks)
 
-- Persona Builder self-service MVP
-- evaluation harness and scorecards in Foundry
-- stronger guardrails and audit dashboards
+- Persona Builder self-service MVP for non-technical persona authors
+- Evaluation harness and scorecards in Foundry (benchmark prompts per persona)
+- Stronger guardrails, audit dashboards, and PII controls
+- Knowledge management pattern for versioning and managing up to 65 personas across 8 market segments
+- Direct Word document grounding validation and optimization
+- Panel/ensemble orchestration improvements (multi-persona simultaneous responses)
 
-### Phase 3 (ongoing)
+### Phase 3 — Scale and Real-Time Data (Ongoing)
 
-- automated persona drift detection
-- experiment-driven prompt/model optimization
-- advanced segmentation and dynamic persona composition
+- Real-time customer feedback integration from Salesforce and Eaton.com
+- Dynamic persona template updates driven by live voice-of-customer signals
+- Automated persona drift detection and recalibration
+- MCP (Model Context Protocol) and skills-based orchestration for flexible agent composition
+- Experiment-driven prompt and model optimization
+- Advanced segmentation and dynamic persona composition across all market segments
 
-## 11. Success Metrics
+## 12. Success Metrics
 
 - reduction in campaign concept iteration time
 - lift in message relevance scores from user studies
@@ -279,14 +355,14 @@ Request:
     "displayName": "Adele Vance",
     "roles": ["marketing-manager"]
   },
-  "prompt": "How will our personas react to a 15% annual-plan discount?",
+  "prompt": "How will our personas react to this new power distribution product announcement?",
   "personaSelection": {
     "mode": "explicit",
-    "personaIds": ["budget_family_shopper", "premium_early_adopter", "skeptical_researcher"]
+    "personaIds": ["data_center_consultant", "field_engineer", "contractor"]
   },
   "context": {
-    "campaignId": "cmp-2026-summer-01",
-    "productId": "prod-subscription-plus",
+    "campaignId": "cmp-2026-datacenter-launch",
+    "productId": "prod-power-distribution-v2",
     "market": "US",
     "channel": "email"
   },
@@ -308,31 +384,31 @@ Response:
   "startedAt": "2026-05-20T16:10:22Z",
   "completedAt": "2026-05-20T16:10:27Z",
   "orchestration": {
-    "selectedPersonaIds": ["budget_family_shopper", "premium_early_adopter", "skeptical_researcher"],
+    "selectedPersonaIds": ["data_center_consultant", "field_engineer", "contractor"],
     "failedPersonaIds": [],
     "degraded": false
   },
   "personaResults": [
     {
-      "personaId": "budget_family_shopper",
+      "personaId": "data_center_consultant",
       "resultRef": "pr_01JV7E4KFS3S2P"
     },
     {
-      "personaId": "premium_early_adopter",
+      "personaId": "field_engineer",
       "resultRef": "pr_01JV7E4M4MKR4W"
     }
   ],
   "synthesis": {
     "consensus": [
-      "Discount is attractive when savings are explicit",
-      "Trust signals are required near checkout"
+      "Product reliability and long support lifecycle are critical",
+      "ROI evidence and reference customers are required to progress"
     ],
     "disagreements": [
-      "Premium persona values exclusivity over discount depth"
+      "Consultant prioritizes vendor ecosystem fit; contractor prioritizes installation simplicity"
     ],
     "recommendedActions": [
-      "A/B test price-first vs value-first headline",
-      "Add review proof points near CTA"
+      "Lead with uptime and support SLA data",
+      "Provide installation guide and compatibility matrix"
     ]
   },
   "telemetry": {
@@ -418,20 +494,20 @@ Response:
 
 ```json
 {
-  "personaId": "budget_family_shopper",
-  "personaVersion": "1.3.2",
+  "personaId": "data_center_consultant",
+  "personaVersion": "1.0.0",
   "status": "completed",
   "reaction": {
-    "summaryReaction": "Positive if savings are immediate and transparent.",
+    "summaryReaction": "Cautiously positive if reliability specs and reference customers are provided.",
     "likelyObjections": [
-      "Concern about renewal price after first year",
-      "Suspicion of hidden fees"
+      "Needs validated uptime data from comparable deployments",
+      "Concerned about long-term vendor support and parts availability"
     ],
     "likelyMotivators": [
-      "Clear total annual savings",
-      "No lock-in messaging"
+      "Proven reliability at scale",
+      "Clear integration path with existing infrastructure"
     ],
-    "recommendedMessage": "Save 15% now, cancel anytime, no hidden fees.",
+    "recommendedMessage": "Proven in 500+ enterprise data centers, backed by a 10-year support commitment.",
     "confidenceScore": 0.86,
     "evidenceCitations": [
       {
@@ -473,21 +549,21 @@ Request:
   "runId": "run_01JV7E3S4P5Q9N0X2Y1Z",
   "personaOutputs": [
     {
-      "personaId": "budget_family_shopper",
-      "summaryReaction": "Positive if savings are transparent.",
+      "personaId": "data_center_consultant",
+      "summaryReaction": "Cautiously positive if reliability evidence is provided.",
       "confidenceScore": 0.86
     },
     {
-      "personaId": "premium_early_adopter",
-      "summaryReaction": "Neutral unless premium value remains clear.",
+      "personaId": "field_engineer",
+      "summaryReaction": "Positive if installation process is simple and well-documented.",
       "confidenceScore": 0.79
     }
   ],
   "strategy": {
     "mode": "weighted-consensus",
     "weights": {
-      "budget_family_shopper": 1.0,
-      "premium_early_adopter": 0.8
+      "data_center_consultant": 1.0,
+      "field_engineer": 0.8
     }
   }
 }
@@ -500,17 +576,17 @@ Response:
   "runId": "run_01JV7E3S4P5Q9N0X2Y1Z",
   "synthesisVersion": "2026.05.1",
   "topConsensusPoints": [
-    "Savings should be explicit at first glance",
-    "Trust and cancellation terms must be visible"
+    "Reliability evidence and reference customers are decisive",
+    "Long-term support commitment must be clearly stated"
   ],
   "keyDisagreements": [
-    "Discount-heavy framing may erode premium perception"
+    "Consultant focuses on ecosystem fit; engineer focuses on on-site ease of installation"
   ],
   "campaignRisks": [
     {
-      "risk": "Premium segment churn risk",
-      "severity": "medium",
-      "mitigation": "Pair discount with premium service differentiators"
+      "risk": "Technical credibility gap if specs are vague",
+      "severity": "high",
+      "mitigation": "Include validated performance data and third-party certifications"
     }
   ],
   "recommendedActions": [
@@ -725,6 +801,7 @@ create index idx_persona_eval_lookup on persona_evaluation(persona_id, version, 
 ```sql
 insert into persona(persona_id, display_name, segment, owner_upn)
 values
-('budget_family_shopper', 'Budget Family Shopper', 'Value-focused households', 'marketing.ops@contoso.com'),
-('premium_early_adopter', 'Premium Early Adopter', 'High-intent premium buyers', 'marketing.ops@contoso.com');
+('data_center_consultant', 'Data Center Consultant', 'B2B — Infrastructure and facilities decision influencers', 'marketing.ops@contoso.com'),
+('field_engineer', 'Field Engineer', 'B2B — On-site technical implementers', 'marketing.ops@contoso.com'),
+('contractor', 'Contractor', 'B2B — Project-based installation and integration specialists', 'marketing.ops@contoso.com');
 ```
